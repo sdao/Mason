@@ -5,6 +5,8 @@
 
 #include "Engine/StaticMesh.h"
 
+#include "Async/ParallelFor.h"
+
 #include "Materials/MaterialInstanceConstant.h"
 
 #include "MeshDescription.h"
@@ -320,4 +322,55 @@ UStaticMesh* ABasePlayerController::GetLdrawMesh(const FString& name)
 
 	_cache.Add(name, mesh);
 	return mesh;
+}
+
+TArray<FLdrawPartInfo> ABasePlayerController::GetLdrawPartList()
+{
+	FString ldrawRoot = FPaths::Combine(FPaths::ProjectContentDir(), TEXT("Ldraw"));
+	FString partsList = FPaths::Combine(ldrawRoot, TEXT("parts.lst"));
+	if (!FPaths::FileExists(partsList)) {
+		UE_LOG(LogTemp, Warning, TEXT("Could not find parts list!"));
+		return {};
+	}
+
+	FString contents;
+	FFileHelper::LoadFileToString(contents, *partsList);
+
+	std::string outputString(TCHAR_TO_UTF8(*contents));
+	std::stringstream sstream(outputString);
+
+	TArray<FLdrawPartInfo> ret;
+
+	int lineNum = 1;
+	for (std::string line; std::getline(sstream, line); lineNum++) {
+		int n = line.find(' ');
+		std::string name = line.substr(0, n);
+
+		std::string desc;
+		if (n != std::string::npos) {
+			// find string starting at non-space
+			int m = line.find_first_not_of(' ', n);
+			if (m != std::string::npos) {
+				// and ending right before the newline
+				int p = line.find_first_of("\r\n", m);
+				if (p == std::string::npos) {
+					p = line.size();
+				}
+
+				desc = line.substr(m, p-m);
+			}
+		}
+
+		if (desc.empty() || !(desc.front() >= 'A' && desc.front() <= 'Z')) {
+			continue;
+		}
+
+		FLdrawPartInfo pi;
+		pi.Path = UTF8_TO_TCHAR(name.c_str());
+		pi.Description = UTF8_TO_TCHAR(desc.c_str());
+		ret.Add(pi);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("Read parts list with %d entries"), ret.Num());
+	return ret;
 }
