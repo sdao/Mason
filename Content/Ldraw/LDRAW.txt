@@ -1,1 +1,6 @@
 Extract Ldraw parts files here.
+The Mason project reads all Ldraw part files (including the basic bricks) out of this directory.
+If there are no files here, then it won't be able to create any brick geometry in the scene.
+
+E.g. go to <https://www.ldraw.org/parts/latest-parts.html> and download `complete.zip`.
+Then extract its contents into this directory.
