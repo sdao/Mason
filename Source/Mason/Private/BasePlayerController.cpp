@@ -14,6 +14,12 @@
 #include "StaticMeshAttributes.h"
 #include "StaticMeshOperations.h"
 
+#include "InteractiveToolsContext.h"
+#include "ToolContextInterfaces.h"
+
+#include "BaseGizmos/TransformProxy.h"
+#include "BaseGizmos/TransformGizmo.h"
+
 #include <string>
 #include <sstream>
 #include <vector>
@@ -373,4 +379,130 @@ TArray<FLdrawPartInfo> ABasePlayerController::GetLdrawPartList()
 
 	UE_LOG(LogTemp, Warning, TEXT("Read parts list with %d entries"), ret.Num());
 	return ret;
+}
+
+class FRuntimeToolsContextQueriesImpl : public IToolsContextQueriesAPI
+{
+public:
+	FRuntimeToolsContextQueriesImpl(UInteractiveToolsContext* InContext, UWorld* InWorld)
+	{
+		ToolsContext = InContext;
+		TargetWorld = InWorld;
+	}
+
+	virtual void GetCurrentSelectionState(FToolBuilderState& StateOut) const override
+	{
+		StateOut.ToolManager = ToolsContext->ToolManager;
+		StateOut.GizmoManager = ToolsContext->GizmoManager;
+		StateOut.World = TargetWorld;
+	}
+
+	virtual void GetCurrentViewState(FViewCameraState& StateOut) const override
+	{
+		StateOut.Position.Set(0, 0, 0);
+		StateOut.Orientation = FQuat::Identity;
+		StateOut.HorizontalFOVDegrees = 90;
+		StateOut.OrthoWorldCoordinateWidth = 1;
+		StateOut.AspectRatio = 1.0;
+		StateOut.bIsOrthographic = false;
+		StateOut.bIsVR = false;
+	}
+
+	virtual EToolContextCoordinateSystem GetCurrentCoordinateSystem() const override
+	{
+		return EToolContextCoordinateSystem::Local;
+	}
+
+	virtual bool ExecuteSceneSnapQuery(const FSceneSnapQueryRequest& Request, TArray<FSceneSnapQueryResult>& Results) const override
+	{
+		return false;
+	}
+
+	virtual UMaterialInterface* GetStandardMaterial(EStandardToolContextMaterials MaterialType) const override
+	{
+		return UMaterial::GetDefaultMaterial(MD_Surface);
+	}
+
+#if WITH_EDITOR
+	virtual HHitProxy* GetHitProxy(int32 X, int32 Y) const override
+	{
+		return nullptr;
+	}
+#endif
+
+protected:
+	UInteractiveToolsContext* ToolsContext;
+	UWorld* TargetWorld;
+};
+
+class FRuntimeToolsContextTransactionImpl : public IToolsContextTransactionsAPI
+{
+public:
+	virtual void DisplayMessage(const FText& Message, EToolMessageLevel Level) override
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ToolMessage] %s"), *Message.ToString());
+	}
+
+	virtual void PostInvalidation() override
+	{
+	}
+
+	virtual void BeginUndoTransaction(const FText& Description) override
+	{
+	}
+
+	virtual void EndUndoTransaction() override
+	{
+	}
+
+	virtual void AppendChange(UObject* TargetObject, TUniquePtr<FToolCommandChange> Change, const FText& Description) override
+	{
+	}
+
+	virtual bool RequestSelectionChange(const FSelectedOjectsChangeList& SelectionChange) override
+	{
+		return false;
+	}
+};
+
+
+void ABasePlayerController::BeginPlay()
+{
+	APlayerController::BeginPlay();
+	ToolsContext = NewObject<UInteractiveToolsContext>();
+	_contextQueriesAPI = MakeShared<FRuntimeToolsContextQueriesImpl>(ToolsContext, GetWorld());
+	_contextTransactionsAPI = MakeShared<FRuntimeToolsContextTransactionImpl>();
+	ToolsContext->Initialize(_contextQueriesAPI.Get(), _contextTransactionsAPI.Get());
+}
+
+void ABasePlayerController::ShowTransformGizmo(AActor* controlled)
+{
+	if (!ToolsContext) {
+		return;
+	}
+
+	if (!ToolsContext->GizmoManager) {
+		return;
+	}
+	
+	auto TransformProxy = NewObject<UTransformProxy>(this);
+	TransformProxy->AddComponent(controlled->GetRootComponent());
+
+	ToolsContext->GizmoManager->DestroyAllGizmosByOwner(this);
+
+	auto TransformGizmo = ToolsContext->GizmoManager->CreateCustomTransformGizmo(ETransformGizmoSubElements::TranslateRotateUniformScale, this);
+	TransformGizmo->SetActiveTarget(TransformProxy);
+}
+
+void ABasePlayerController::HideAllGizmos()
+{
+	if (!ToolsContext) {
+		return;
+	}
+
+	if (!ToolsContext->GizmoManager) {
+		return;
+	}
+
+	ToolsContext->GizmoManager->DestroyAllGizmosByOwner(this);
 }

@@ -12,6 +12,9 @@
 #include "BasePlayerController.generated.h"
 
 class UStaticMesh;
+class UInteractiveToolsContext;
+class FRuntimeToolsContextQueriesImpl;
+class FRuntimeToolsContextTransactionImpl;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFinishLoadDelegate);
 
@@ -33,6 +36,11 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Ldraw")
 	FFinishLoadDelegate OnFinishLoadLdrawPartNames;
 
+	UPROPERTY()
+	UInteractiveToolsContext* ToolsContext;
+
+	void BeginPlay() override;
+
 public:
 	UFUNCTION(BlueprintCallable, Category = "Ldraw")
 	UStaticMesh* GetLdrawMesh(const FString& name);
@@ -40,6 +48,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Ldraw")
 	TArray<FLdrawPartInfo> GetLdrawPartList();
 
+	UFUNCTION(BlueprintCallable, Category = "Tool Framework")
+	void ShowTransformGizmo(AActor* controlled);
+
+	UFUNCTION(BlueprintCallable, Category = "Tool Framework")
+	void HideAllGizmos();
+
 private:
 	TMap<FString, UStaticMesh*> _cache;
+	TSharedPtr<FRuntimeToolsContextQueriesImpl> _contextQueriesAPI;
+	TSharedPtr<FRuntimeToolsContextTransactionImpl> _contextTransactionsAPI;
 };
