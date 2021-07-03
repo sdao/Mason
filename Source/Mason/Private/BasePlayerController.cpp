@@ -20,6 +20,9 @@
 #include "BaseGizmos/TransformProxy.h"
 #include "BaseGizmos/TransformGizmo.h"
 
+#include "Slate/SGameLayerManager.h" 	
+#include "Slate/SceneViewport.h"
+
 #include <string>
 #include <sstream>
 #include <vector>
@@ -390,6 +393,11 @@ public:
 		TargetWorld = InWorld;
 	}
 
+	virtual void SetContextActor(AActor* ContextActorIn)
+	{
+		ContextActor = ContextActorIn;
+	}
+
 	virtual void GetCurrentSelectionState(FToolBuilderState& StateOut) const override
 	{
 		StateOut.ToolManager = ToolsContext->ToolManager;
@@ -399,8 +407,19 @@ public:
 
 	virtual void GetCurrentViewState(FViewCameraState& StateOut) const override
 	{
-		StateOut.Position.Set(0, 0, 0);
-		StateOut.Orientation = FQuat::Identity;
+		if (!ContextActor)
+		{
+			return;
+		}
+
+		bool bHasCamera = ContextActor->HasActiveCameraComponent();
+
+		FVector Location;
+		FRotator Rotation;
+		ContextActor->GetActorEyesViewPoint(Location, Rotation);
+
+		StateOut.Position = Location;
+		StateOut.Orientation = Rotation.Quaternion();
 		StateOut.HorizontalFOVDegrees = 90;
 		StateOut.OrthoWorldCoordinateWidth = 1;
 		StateOut.AspectRatio = 1.0;
@@ -433,6 +452,7 @@ public:
 protected:
 	UInteractiveToolsContext* ToolsContext;
 	UWorld* TargetWorld;
+	AActor* ContextActor = nullptr;
 };
 
 class FRuntimeToolsContextTransactionImpl : public IToolsContextTransactionsAPI
@@ -472,6 +492,7 @@ void ABasePlayerController::BeginPlay()
 	ToolsContext = NewObject<UInteractiveToolsContext>();
 	_contextQueriesAPI = MakeShared<FRuntimeToolsContextQueriesImpl>(ToolsContext, GetWorld());
 	_contextTransactionsAPI = MakeShared<FRuntimeToolsContextTransactionImpl>();
+	_contextQueriesAPI->SetContextActor(GetPawn());
 	ToolsContext->Initialize(_contextQueriesAPI.Get(), _contextTransactionsAPI.Get());
 }
 
@@ -505,4 +526,89 @@ void ABasePlayerController::HideAllGizmos()
 	}
 
 	ToolsContext->GizmoManager->DestroyAllGizmosByOwner(this);
+}
+
+void ABasePlayerController::Tick(float DeltaTime)
+{
+	APlayerController::Tick(DeltaTime);
+
+	{
+		FInputDeviceState InputState = CurrentMouseState;
+		InputState.InputDevice = EInputDevices::Mouse;
+
+		FVector2D MousePosition = FSlateApplication::Get().GetCursorPos();
+		FVector2D LastMousePosition = FSlateApplication::Get().GetLastCursorPos();
+		FModifierKeysState ModifierState = FSlateApplication::Get().GetModifierKeys();
+
+		UGameViewportClient* ViewportClient = GetWorld()->GetGameViewport();
+		TSharedPtr<IGameLayerManager> LayerManager = ViewportClient->GetGameLayerManager();
+		FGeometry ViewportGeometry;
+		if (ensure(LayerManager.IsValid()))
+		{
+			ViewportGeometry = LayerManager->GetViewportWidgetHostGeometry();
+		}
+		// why do we need this scale here? what is it for?
+		FVector2D ViewportMousePos = ViewportGeometry.Scale * ViewportGeometry.AbsoluteToLocal(MousePosition);
+
+
+		// update modifier keys
+		InputState.SetModifierKeyStates(
+			ModifierState.IsLeftShiftDown(),
+			ModifierState.IsAltDown(),
+			ModifierState.IsControlDown(),
+			ModifierState.IsCommandDown());
+
+		if (ViewportClient)
+		{
+			FSceneViewport* Viewport = ViewportClient->GetGameViewport();
+
+			FEngineShowFlags* ShowFlags = ViewportClient->GetEngineShowFlags();
+			FSceneViewFamilyContext ViewFamily(FSceneViewFamily::ConstructionValues(
+				ViewportClient->Viewport,
+				GetWorld()->Scene,
+				*ShowFlags)
+				.SetRealtimeUpdate(true));
+
+			ULocalPlayer* LocalPlayer = Cast<ULocalPlayer>(Player);
+			FVector ViewLocation;
+			FRotator ViewRotation;
+			FSceneView* SceneView = LocalPlayer->CalcSceneView(&ViewFamily,  /*out*/ ViewLocation, /*out*/ ViewRotation, LocalPlayer->ViewportClient->Viewport);
+			if (SceneView == nullptr)
+			{
+				return;		// abort abort
+			}
+
+			FVector4 ScreenPos = SceneView->PixelToScreen(ViewportMousePos.X, ViewportMousePos.Y, 0);
+			UE_LOG(LogTemp, Warning, TEXT("pos '%f %f'"), ScreenPos.X, ScreenPos.Y);
+
+			const FMatrix InvViewMatrix = SceneView->ViewMatrices.GetInvViewMatrix();
+			const FMatrix InvProjMatrix = SceneView->ViewMatrices.GetInvProjectionMatrix();
+
+			const float ScreenX = ScreenPos.X;
+			const float ScreenY = ScreenPos.Y;
+
+			FVector Origin;
+			FVector Direction;
+			if (!ViewportClient->IsOrtho())
+			{
+				Origin = SceneView->ViewMatrices.GetViewOrigin();
+				Direction = InvViewMatrix.TransformVector(FVector(InvProjMatrix.TransformFVector4(FVector4(ScreenX * GNearClippingPlane, ScreenY * GNearClippingPlane, 0.0f, GNearClippingPlane)))).GetSafeNormal();
+			}
+			else
+			{
+				Origin = InvViewMatrix.TransformFVector4(InvProjMatrix.TransformFVector4(FVector4(ScreenX, ScreenY, 0.5f, 1.0f)));
+				Direction = InvViewMatrix.TransformVector(FVector(0, 0, 1)).GetSafeNormal();
+			}
+
+			// fudge factor so we don't hit actor...
+			Origin += 1.0 * Direction;
+
+			InputState.Mouse.Position2D = FVector2D(ScreenX, ScreenY);
+			InputState.Mouse.Delta2D = CurrentMouseState.Mouse.Position2D - PrevMousePosition;
+			PrevMousePosition = InputState.Mouse.Position2D;
+			InputState.Mouse.WorldRay = FRay(Origin, Direction);
+
+			ToolsContext->InputRouter->PostHoverInputEvent(InputState);
+		}
+	}
 }

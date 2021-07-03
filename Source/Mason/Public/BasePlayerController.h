@@ -9,7 +9,11 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "Delegates/Delegate.h"
+
+#include "InputRouter.h"
+
 #include "BasePlayerController.generated.h"
+
 
 class UStaticMesh;
 class UInteractiveToolsContext;
@@ -53,9 +57,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Tool Framework")
 	void HideAllGizmos();
+	
+	void Tick(float DeltaTime) override;
 
 private:
 	TMap<FString, UStaticMesh*> _cache;
 	TSharedPtr<FRuntimeToolsContextQueriesImpl> _contextQueriesAPI;
 	TSharedPtr<FRuntimeToolsContextTransactionImpl> _contextTransactionsAPI;
+
+	FInputDeviceState CurrentMouseState;
+	FVector2D PrevMousePosition = FVector2D::ZeroVector;
 };
