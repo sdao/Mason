@@ -57,7 +57,13 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Tool Framework")
 	void HideAllGizmos();
-	
+
+	UFUNCTION(BlueprintCallable, Category = "Tool Framework")
+	void StartGizmoInteraction();
+
+	UFUNCTION(BlueprintCallable, Category = "Tool Framework")
+	void EndGizmoInteraction();
+
 	void Tick(float DeltaTime) override;
 
 private:
@@ -67,4 +73,5 @@ private:
 
 	FInputDeviceState CurrentMouseState;
 	FVector2D PrevMousePosition = FVector2D::ZeroVector;
+	bool bPendingMouseStateChange = false;
 };

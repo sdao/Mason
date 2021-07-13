@@ -528,6 +528,18 @@ void ABasePlayerController::HideAllGizmos()
 	ToolsContext->GizmoManager->DestroyAllGizmosByOwner(this);
 }
 
+void ABasePlayerController::StartGizmoInteraction()
+{
+	CurrentMouseState.Mouse.Left.SetStates(true, false, false);
+	bPendingMouseStateChange = true;
+}
+
+void ABasePlayerController::EndGizmoInteraction()
+{
+	CurrentMouseState.Mouse.Left.SetStates(false, false, true);
+	bPendingMouseStateChange = true;
+}
+
 void ABasePlayerController::Tick(float DeltaTime)
 {
 	APlayerController::Tick(DeltaTime);
@@ -608,7 +620,28 @@ void ABasePlayerController::Tick(float DeltaTime)
 			PrevMousePosition = InputState.Mouse.Position2D;
 			InputState.Mouse.WorldRay = FRay(Origin, Direction);
 
-			ToolsContext->InputRouter->PostHoverInputEvent(InputState);
+			if (bPendingMouseStateChange || ToolsContext->InputRouter->HasActiveMouseCapture()) {
+				ToolsContext->InputRouter->PostInputEvent(InputState);
+			}
+			else {
+				ToolsContext->InputRouter->PostHoverInputEvent(InputState);
+			}
+
+			if (bPendingMouseStateChange)
+			{
+				if (CurrentMouseState.Mouse.Left.bDown)
+				{
+					CurrentMouseState.Mouse.Left.SetStates(false, true, false);
+				}
+				else
+				{
+					CurrentMouseState.Mouse.Left.SetStates(false, false, false);
+				}
+				bPendingMouseStateChange = false;
+			}
+
+			ToolsContext->ToolManager->Tick(DeltaTime);
+			ToolsContext->GizmoManager->Tick(DeltaTime);
 		}
 	}
 }
